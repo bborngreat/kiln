@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0d1614">
+<title>Kiln: HTML animation to MP4</title>
+
+<!-- Local copy of mp4-muxer (preferred). If it isn't next to this file, the app falls back to the CDN automatically. -->
+<script src="mp4-muxer.min.js"></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..700&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0d1614;
+    --panel: #131f1c;
+    --field: #0a110f;
+    --line: #243631;
+    --line-strong: #35504a;
+    --text: #ecf3ef;
+    --muted: #8ba39a;
+    --accent: #a8e0cb;
+    --accent-hover: #c6f0e1;
+    --on-accent: #0b1512;
+    --warn-bg: #261f0e;
+    --warn-border: #66531c;
+    --warn-text: #f0c85a;
+    --error: #ff9b88;
+    --display: "Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--body);
+    display: flex;
+    justify-content: center;
+    min-height: 100vh;
+    margin: 0;
+    padding: 40px 18px 56px;
+  }
+  .app {
+    width: 100%;
+    max-width: 860px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    height: fit-content;
+  }
+
+  /* ---------- masthead ---------- */
+  .masthead { display: flex; align-items: center; gap: 16px; }
+  .mark { width: 46px; height: 46px; flex: none; }
+  h1 {
+    font-family: var(--display);
+    font-size: 2.4rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    margin: 0 0 6px;
+  }
+  .sub { font-size: 0.95rem; color: var(--muted); margin: 0; line-height: 1.4; }
+
+  /* ---------- warning ---------- */
+  .warning {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    color: var(--warn-text);
+    border-radius: 12px;
+    padding: 14px 16px;
+    font-size: 0.84rem;
+    line-height: 1.55;
+  }
+  .warning[hidden] { display: none; }
+  .warning code {
+    background: rgba(0,0,0,0.4);
+    padding: 1px 6px;
+    border-radius: 5px;
+    font-size: 0.8rem;
+  }
+
+  /* ---------- drop zone ---------- */
+  .drop-zone {
+    border: 1.5px dashed var(--line-strong);
+    border-radius: 14px;
+    padding: 24px 18px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    color: var(--text);
+  }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--accent);
+    background: rgba(168,224,203,0.06);
+  }
+  #fileName { font-family: var(--display); font-size: 1.1rem; font-weight: 600; letter-spacing: -0.01em; }
+  .hint { font-size: 0.82rem; color: var(--muted); }
+
+  /* ---------- stage (the viewfinder) ---------- */
+  .stage-wrap {
+    position: relative;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #000;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 0;
+  }
+  .stage-wrap::after {
+    content: "";
+    position: absolute;
+    inset: 12px;
+    pointer-events: none;
+    z-index: 2;
+    opacity: .75;
+    background:
+      linear-gradient(var(--accent), var(--accent)) top left / 22px 2px no-repeat,
+      linear-gradient(var(--accent), var(--accent)) top left / 2px 22px no-repeat,
+      linear-gradient(var(--accent), var(--accent)) top right / 22px 2px no-repeat,
+      linear-gradient(var(--accent), var(--accent)) top right / 2px 22px no-repeat,
+      linear-gradient(var(--accent), var(--accent)) bottom left / 22px 2px no-repeat,
+      linear-gradient(var(--accent), var(--accent)) bottom left / 2px 22px no-repeat,
+      linear-gradient(var(--accent), var(--accent)) bottom right / 22px 2px no-repeat,
+      linear-gradient(var(--accent), var(--accent)) bottom right / 2px 22px no-repeat;
+  }
+  #frameBox { position: relative; flex: none; overflow: hidden; }
+  #previewFrame {
+    border: 0;
+    display: block;
+    background: #000;
+    position: absolute;
+    left: 0; top: 0;
+    transform-origin: 0 0;
+  }
+
+  /* ---------- settings ---------- */
+  .controls-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 16px 14px;
+    padding: 18px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+  }
+  label {
+    font-size: 0.82rem;
+    color: var(--muted);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  input, select {
+    background: var(--field);
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 9px 10px;
+    border-radius: 8px;
+    font-size: 0.92rem;
+    font-family: inherit;
+    font-variant-numeric: tabular-nums;
+    width: 100%;
+  }
+  input:hover, select:hover { border-color: var(--line-strong); }
+  input:focus-visible, select:focus-visible,
+  button:focus-visible, .drop-zone:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ---------- progress, actions, status ---------- */
+  .progress {
+    height: 8px;
+    background: var(--field);
+    border-radius: 99px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+  }
+  .progress.hidden { display: none; }
+  #progressFill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    transition: width .08s linear;
+  }
+
+  .actions { display: flex; gap: 10px; }
+  button {
+    background: var(--accent);
+    color: var(--on-accent);
+    border: none;
+    padding: 14px 18px;
+    border-radius: 12px;
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 1rem;
+    letter-spacing: -0.005em;
+    cursor: pointer;
+    flex: 1;
+    transition: background .15s;
+  }
+  button:hover:not(:disabled) { background: var(--accent-hover); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.ghost {
+    background: transparent;
+    border: 1px solid var(--line-strong);
+    color: var(--muted);
+    flex: 0 0 auto;
+  }
+  button.ghost:hover:not(:disabled) { background: var(--panel); color: var(--text); }
+  button.hidden { display: none; }
+
+  #status {
+    font-size: 0.86rem;
+    color: var(--muted);
+    text-align: center;
+    min-height: 1.3em;
+    line-height: 1.45;
+  }
+  #status.error { color: var(--error); }
+  #status.ok { color: var(--accent); }
+
+  @media (max-width: 520px) {
+    body { padding: 24px 14px 40px; }
+    h1 { font-size: 2rem; }
+    .mark { width: 38px; height: 38px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="masthead">
+    <svg class="mark" viewBox="0 0 48 48" aria-hidden="true">
+      <path d="M6 44V22C6 11.5 14 4 24 4s18 7.5 18 18v22z" fill="#a8e0cb"/>
+      <path d="M15 44V32c0-5 4-9 9-9s9 4 9 9v12z" fill="#0d1614"/>
+    </svg>
+    <div>
+      <h1>Kiln</h1>
+      <p class="sub">Turn an animated HTML file into an MP4 video, right in your browser.</p>
+    </div>
+  </header>
+
+  <div id="warning" class="warning" hidden></div>
+
+  <div class="drop-zone" id="dropZone">
+    <span id="fileName">Drop an animated .html file here, or click to choose one</span>
+    <span class="hint">Your animation plays live in the preview below.</span>
+    <input type="file" id="fileInput" accept=".html,.htm,text/html" hidden>
+  </div>
+
+  <div class="stage-wrap">
+    <div id="frameBox"><iframe id="previewFrame"></iframe></div>
+  </div>
+
+  <div class="controls-grid">
+    <label>FPS
+      <input type="number" id="fps" value="30" min="1" max="120" step="1">
+    </label>
+    <label>Duration (s)
+      <input type="number" id="duration" value="3" min="0.1" max="120" step="0.1">
+    </label>
+    <label>Preset
+      <select id="preset">
+        <option value="1920x1080x12">1080p landscape</option>
+        <option value="1080x1920x12">1080×1920 vertical</option>
+        <option value="1080x1080x10">1080×1080 square</option>
+        <option value="1280x720x6">720p landscape</option>
+        <option value="3840x2160x35">4K landscape</option>
+        <option value="custom">Custom</option>
+      </select>
+    </label>
+    <label>Width (px)
+      <input type="number" id="width" value="1920" min="16" max="3840" step="2">
+    </label>
+    <label>Height (px)
+      <input type="number" id="height" value="1080" min="16" max="2160" step="2">
+    </label>
+    <label>Bitrate (Mbps)
+      <input type="number" id="bitrate" value="12" min="0.5" max="50" step="0.5">
+    </label>
+    <label>Capture mode
+      <select id="captureMode">
+        <option value="auto">Auto</option>
+        <option value="dom">DOM (html2canvas)</option>
+        <option value="canvas">Canvas only (fast)</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="progress hidden" id="progress"><div id="progressFill"></div></div>
+
+  <div class="actions">
+    <button id="exportBtn" disabled>Render &amp; Export MP4</button>
+    <button id="cancelBtn" class="ghost hidden">Cancel</button>
+  </div>
+
+  <div id="status">Choose a file to begin.</div>
+</div>
+
+
+<!-- =====================================================================
+     Time-control shim. Injected into the frame BEFORE the user's scripts.
+     In preview mode it is a pure pass-through (the animation runs live).
+     In capture mode it virtualises time so frames can be stepped exactly.
+     ===================================================================== -->
+<script type="text/plain" id="shim-source">
+(function () {
+  if (window.__frameShim) return;
+
+  var CAPTURE = window.__CAPTURE_MODE__ === true;
+
+  var realRAF       = window.requestAnimationFrame.bind(window);
+  var realCAF       = window.cancelAnimationFrame.bind(window);
+  var realSetT      = window.setTimeout.bind(window);
+  var realSetI      = window.setInterval.bind(window);
+  var realClearT    = window.clearTimeout.bind(window);
+  var realClearI    = window.clearInterval.bind(window);
+  var realPerfNow   = performance.now.bind(performance);
+  var realDateNow   = Date.now.bind(Date);
+
+  var S = {
+    capture: CAPTURE,
+    virtualTime: 0,
+    epoch: realDateNow(),
+    rafQueue: [],
+    rafId: 1,
+    timers: [],
+    timerId: 1
+  };
+  window.__frameShim = S;
+
+  performance.now = function () {
+    return S.capture ? S.virtualTime : realPerfNow();
+  };
+  Date.now = function () {
+    return S.capture ? S.epoch + S.virtualTime : realDateNow();
+  };
+
+  window.requestAnimationFrame = function (cb) {
+    if (!S.capture) return realRAF(cb);
+    var id = S.rafId++;
+    S.rafQueue.push({ id: id, cb: cb });
+    return id;
+  };
+  window.cancelAnimationFrame = function (id) {
+    if (!S.capture) return realCAF(id);
+    for (var i = 0; i < S.rafQueue.length; i++) {
+      if (S.rafQueue[i].id === id) { S.rafQueue.splice(i, 1); return; }
+    }
+  };
+
+  window.setTimeout = function (fn, delay) {
+    if (!S.capture) return realSetT.apply(null, arguments);
+    var args = Array.prototype.slice.call(arguments, 2);
+    var id = S.timerId++;
+    S.timers.push({
+      id: id, fn: fn, args: args,
+      due: S.virtualTime + (Number(delay) || 0),
+      every: 0
+    });
+    return id;
+  };
+  window.setInterval = function (fn, delay) {
+    if (!S.capture) return realSetI.apply(null, arguments);
+    var args = Array.prototype.slice.call(arguments, 2);
+    var every = Math.max(1, Number(delay) || 1);
+    var id = S.timerId++;
+    S.timers.push({
+      id: id, fn: fn, args: args,
+      due: S.virtualTime + every,
+      every: every
+    });
+    return id;
+  };
+  window.clearTimeout = function (id) {
+    if (!S.capture) return realClearT(id);
+    S.timers = S.timers.filter(function (t) { return t.id !== id; });
+  };
+  window.clearInterval = function (id) {
+    if (!S.capture) return realClearI(id);
+    S.timers = S.timers.filter(function (t) { return t.id !== id; });
+  };
+
+  // Move the virtual clock to t and fire everything that becomes due.
+  S.advanceTo = function (t) {
+    S.virtualTime = t;
+
+    var guard = 0;
+    while (guard++ < 5000) {
+      var next = null;
+      for (var i = 0; i < S.timers.length; i++) {
+        var timer = S.timers[i];
+        if (timer.due <= t && (!next || timer.due < next.due)) next = timer;
+      }
+      if (!next) break;
+
+      if (next.every) {
+        next.due += next.every;
+      } else {
+        S.timers = S.timers.filter(function (x) { return x !== next; });
+      }
+      try { next.fn.apply(null, next.args); } catch (e) { console.error(e); }
+    }
+
+    var queue = S.rafQueue;
+    S.rafQueue = [];
+    for (var j = 0; j < queue.length; j++) {
+      try { queue[j].cb(t); } catch (e) { console.error(e); }
+    }
+  };
+})();
+</script>
+
+
+<script>
+(function () {
+  'use strict';
+
+  /* ------------------------------------------------------------------ */
+  /* Element refs                                                        */
+  /* ------------------------------------------------------------------ */
+  const fileInput    = document.getElementById('fileInput');
+  const dropZone     = document.getElementById('dropZone');
+  const fileNameEl   = document.getElementById('fileName');
+  const iframe       = document.getElementById('previewFrame');
+  const exportBtn    = document.getElementById('exportBtn');
+  const cancelBtn    = document.getElementById('cancelBtn');
+  const statusEl     = document.getElementById('status');
+  const progressEl   = document.getElementById('progress');
+  const progressFill = document.getElementById('progressFill');
+  const warningEl    = document.getElementById('warning');
+
+  const fpsInput      = document.getElementById('fps');
+  const durationInput = document.getElementById('duration');
+  const widthInput    = document.getElementById('width');
+  const heightInput   = document.getElementById('height');
+  const bitrateInput  = document.getElementById('bitrate');
+  const captureSel    = document.getElementById('captureMode');
+
+  const SHIM_SOURCE = document.getElementById('shim-source').textContent;
+  // html2canvas is only needed for DOM capture mode, so it stays remote.
+  // If you want full offline support, download html2canvas.min.js and inline
+  // its contents here instead of the <script src>.
+  const H2C_TAG = '<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"><\/script>';
+
+  let uploadedHtmlContent = null;
+  let cancelled = false;
+  let busy = false;
+
+  /* ------------------------------------------------------------------ */
+  /* Environment checks                                                  */
+  /* ------------------------------------------------------------------ */
+  const MUXER_URLS = [
+    'https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.0/build/mp4-muxer.min.js',
+    'https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.0/build/mp4-muxer.js'
+  ];
+
+  function loadScript(src) {
+    return new Promise((resolve) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = () => resolve(true);
+      s.onerror = () => resolve(false);
+      document.head.appendChild(s);
+    });
+  }
+
+  async function ensureMuxer() {
+    if (typeof Mp4Muxer !== 'undefined') return true;
+    for (const url of MUXER_URLS) {
+      await loadScript(url);
+      if (typeof Mp4Muxer !== 'undefined') return true;
+    }
+    return false;
+  }
+
+  function showWarnings() {
+    const msgs = [];
+
+    if (location.protocol === 'file:') {
+      msgs.push(
+        '<strong>You opened this page from <code>file://</code>.</strong> ' +
+        'Some browsers treat every local file as a separate, opaque origin, which breaks ' +
+        'the same-origin frame access this tool needs. If rendering fails, serve the folder ' +
+        'over HTTP instead — open a terminal in this folder and run ' +
+        '<code>python3 -m http.server 8000</code>, then visit ' +
+        '<code>http://localhost:8000/</code>.'
+      );
+    }
+    if (typeof VideoEncoder === 'undefined') {
+      msgs.push(
+        '<strong>WebCodecs (<code>VideoEncoder</code>) is not available.</strong> ' +
+        'Use a recent version of Chrome or Edge, and make sure the page is on a secure ' +
+        'context (<code>https://</code> or <code>http://localhost</code>).'
+      );
+    }
+    if (typeof Mp4Muxer === 'undefined') {
+      msgs.push(
+        '<strong><code>mp4-muxer</code> could not be loaded</strong> (it is not next to this file, and the CDN backup failed — are you offline?). ' +
+        'Download it from <code>https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.0/build/mp4-muxer.min.js</code> ' +
+        'and place it in the same folder as this HTML file (the script tag loads it as ' +
+        '<code>./mp4-muxer.min.js</code>).'
+      );
+    }
+
+    if (msgs.length) {
+      warningEl.innerHTML = msgs.join('<br><br>');
+      warningEl.hidden = false;
+    } else {
+      warningEl.hidden = true;
+    }
+  }
+  ensureMuxer().then(showWarnings);
+
+  /* ------------------------------------------------------------------ */
+  /* Helpers                                                             */
+  /* ------------------------------------------------------------------ */
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+  function setStatus(text, kind) {
+    statusEl.textContent = text;
+    statusEl.className = kind || '';
+  }
+
+  function setProgress(ratio) {
+    if (ratio == null) {
+      progressEl.classList.add('hidden');
+      progressFill.style.width = '0%';
+    } else {
+      progressEl.classList.remove('hidden');
+      progressFill.style.width = (ratio * 100).toFixed(2) + '%';
+    }
+  }
+
+  function setBusy(on) {
+    busy = on;
+    exportBtn.disabled = on || !uploadedHtmlContent;
+    fileInput.disabled = on;
+    cancelBtn.classList.toggle('hidden', !on);
+    if (!on) setProgress(null);
+  }
+
+  /**
+   * Inject the time-control shim (and html2canvas) at the very top of <head>
+   * so it runs before any of the user's scripts.
+   */
+  function buildDoc(html, captureMode) {
+    const inject =
+      '<script>window.__CAPTURE_MODE__=' + (captureMode ? 'true' : 'false') + ';<\/script>' +
+      '<script>' + SHIM_SOURCE + '<\/script>' +
+      H2C_TAG;
+
+    const headMatch = html.match(/<head[^>]*>/i);
+    if (headMatch) {
+      const i = headMatch.index + headMatch[0].length;
+      return html.slice(0, i) + inject + html.slice(i);
+    }
+
+    const htmlMatch = html.match(/<html[^>]*>/i);
+    if (htmlMatch) {
+      const i = htmlMatch.index + htmlMatch[0].length;
+      return html.slice(0, i) + '<head>' + inject + '</head>' + html.slice(i);
+    }
+
+    const doctype = html.match(/<!doctype[^>]*>/i);
+    if (doctype) {
+      const i = doctype.index + doctype[0].length;
+      return html.slice(0, i) +
+        '<html><head>' + inject + '</head><body>' + html.slice(i) + '</body></html>';
+    }
+
+    return '<!DOCTYPE html><html><head>' + inject + '</head><body>' + html + '</body></html>';
+  }
+
+  function loadIntoFrame(html) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        iframe.removeEventListener('load', finish);
+        resolve();
+      };
+      iframe.addEventListener('load', finish);
+      iframe.srcdoc = html;
+      // Safety net in case 'load' never fires for an identical srcdoc.
+      setTimeout(finish, 5000);
+    });
+  }
+
+  /**
+   * Wait until the frame's document, fonts, images and html2canvas are ready.
+   */
+  async function waitForReady(maxMs, needH2C) {
+    const deadline = Date.now() + (maxMs || 10000);
+    const win = iframe.contentWindow;
+
+    while (Date.now() < deadline) {
+      if (win && win.document && win.document.readyState === 'complete') break;
+      await sleep(50);
+    }
+
+    // Wait for images
+    try {
+      const imgs = Array.from(win.document.images || []);
+      await Promise.all(imgs.map(img => img.complete
+        ? Promise.resolve()
+        : new Promise(res => { img.addEventListener('load', res); img.addEventListener('error', res); })
+      ));
+    } catch (e) { /* ignore */ }
+
+    // Wait for webfonts
+    try { if (win.document.fonts && win.document.fonts.ready) await win.document.fonts.ready; }
+    catch (e) { /* ignore */ }
+
+    // Wait for html2canvas (loaded from CDN inside the frame)
+    while (needH2C && Date.now() < deadline) {
+      if (typeof win.html2canvas === 'function') break;
+      await sleep(50);
+    }
+
+    // Give the first paint a moment
+    await sleep(150);
+  }
+
+  /**
+   * Advance the animation inside the frame to time `t` (milliseconds).
+   */
+  async function seekFrame(t) {
+    const win = iframe.contentWindow;
+    const doc = iframe.contentDocument;
+    const S = win.__frameShim;
+
+    if (!S) throw new Error('Time-control shim was not installed in the frame.');
+
+    // 1. Drive CSS animations, transitions and Web Animations API.
+    let anims = [];
+    try { anims = doc.getAnimations(); } catch (e) { /* ignore */ }
+    for (const a of anims) {
+      try {
+        a.pause();
+        a.currentTime = t;
+      } catch (e) { /* ignore */ }
+    }
+
+    // 2. Advance the virtual clock: timers + requestAnimationFrame callbacks.
+    S.advanceTo(t);
+
+    // 3. Let the browser lay out and paint.
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  }
+
+  /**
+   * Find a <canvas> that fills most of the viewport (fast path).
+   */
+  function findMainCanvas(doc, w, h) {
+    const canvases = Array.from(doc.querySelectorAll('canvas'));
+    let best = null;
+    let bestArea = 0;
+    for (const c of canvases) {
+      const r = c.getBoundingClientRect();
+      const area = r.width * r.height;
+      if (area > bestArea) { bestArea = area; best = c; }
+    }
+    if (best && bestArea >= w * h * 0.6) return best;
+    return null;
+  }
+
+  /**
+   * Turn the current state of the frame into a canvas.
+   */
+  async function rasterize(w, h, mode) {
+    const win = iframe.contentWindow;
+    const doc = iframe.contentDocument;
+
+    if (mode !== 'dom') {
+      const c = findMainCanvas(doc, w, h);
+      if (c) return c;
+      if (mode === 'canvas') {
+        throw new Error('Canvas-only mode: no <canvas> covering at least 60% of the viewport was found.');
+      }
+    }
+
+    if (typeof win.html2canvas !== 'function') {
+      throw new Error('html2canvas could not be loaded inside the frame (offline?). Try "Canvas only" mode, or check your connection.');
+    }
+
+    // html2canvas uses setInterval/setTimeout internally; with virtual time
+    // frozen it would wait forever, so give it the real clock while it runs.
+    const S = win.__frameShim;
+    const wasCapture = S ? S.capture : false;
+    if (S) S.capture = false;
+    try {
+    return await win.html2canvas(doc.body, {
+      width: w,
+      height: h,
+      windowWidth: w,
+      windowHeight: h,
+      x: 0,
+      y: 0,
+      scrollX: 0,
+      scrollY: 0,
+      backgroundColor: '#000000',
+      scale: 1,
+      logging: false,
+      useCORS: true,
+      allowTaint: false,
+      imageTimeout: 5000,
+      removeContainer: true
+    });
+    } finally {
+      if (S) S.capture = wasCapture;
+    }
+  }
+
+  /**
+   * Pick the best supported H.264 configuration for the given resolution.
+   */
+  async function pickCodec(width, height, fps, bitrate) {
+    const candidates = ['avc1.640034', 'avc1.640028', 'avc1.4d0028', 'avc1.42001f'];
+    for (const codec of candidates) {
+      const cfg = { codec, width, height, bitrate, framerate: fps };
+      try {
+        if (typeof VideoEncoder.isConfigSupported === 'function') {
+          const res = await VideoEncoder.isConfigSupported(cfg);
+          if (res && res.supported) return res.config || cfg;
+        } else {
+          return cfg;
+        }
+      } catch (e) { /* try the next one */ }
+    }
+    return null;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Preview frame sizing                                                */
+  /* ------------------------------------------------------------------ */
+  function syncFrameSize() {
+    const w = clamp(parseInt(widthInput.value, 10) || 640, 16, 3840);
+    const h = clamp(parseInt(heightInput.value, 10) || 360, 16, 2160);
+    // The frame keeps its REAL size (what gets exported); only the on-screen
+    // preview is scaled down to fit the card.
+    const wrap = iframe.parentElement.parentElement;
+    const k = Math.min(1, (wrap.clientWidth || w) / w);
+    iframe.style.width = w + 'px';
+    iframe.style.height = h + 'px';
+    iframe.style.transform = 'scale(' + k + ')';
+    const box = iframe.parentElement;
+    box.style.width = Math.round(w * k) + 'px';
+    box.style.height = Math.round(h * k) + 'px';
+  }
+
+  const presetSel = document.getElementById('preset');
+  presetSel.addEventListener('change', () => {
+    if (presetSel.value === 'custom') return;
+    const [pw, ph, pb] = presetSel.value.split('x');
+    widthInput.value = pw;
+    heightInput.value = ph;
+    bitrateInput.value = pb;
+    syncFrameSize();
+  });
+  const markCustom = () => { presetSel.value = 'custom'; };
+  widthInput.addEventListener('input', markCustom);
+  heightInput.addEventListener('input', markCustom);
+  window.addEventListener('resize', syncFrameSize);
+
+  widthInput.addEventListener('input', syncFrameSize);
+  heightInput.addEventListener('input', syncFrameSize);
+  syncFrameSize();
+
+  /* ------------------------------------------------------------------ */
+  /* File loading                                                        */
+  /* ------------------------------------------------------------------ */
+  function handleFile(file) {
+    if (!file) return;
+    if (!/\.html?$/i.test(file.name) && file.type !== 'text/html') {
+      setStatus('Please choose an .html file.', 'error');
+      return;
+    }
+
+    fileNameEl.textContent = 'Loading ' + file.name + '…';
+
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      uploadedHtmlContent = String(ev.target.result);
+      fileNameEl.textContent = 'Selected: ' + file.name;
+
+      syncFrameSize();
+      await loadIntoFrame(buildDoc(uploadedHtmlContent, false));
+      await waitForReady(8000);
+
+      exportBtn.disabled = false;
+      setStatus('Loaded. Preview is live — press "Render & Export MP4" when ready.');
+    };
+    reader.onerror = () => setStatus('Could not read that file.', 'error');
+    reader.readAsText(file);
+  }
+
+  dropZone.addEventListener('click', () => { if (!busy) fileInput.click(); });
+
+  fileInput.addEventListener('change', (e) => {
+    handleFile(e.target.files[0]);
+    fileInput.value = ''; // allow re-selecting the same file
+  });
+
+  ['dragenter', 'dragover'].forEach(evt =>
+    dropZone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!busy) dropZone.classList.add('dragover');
+    })
+  );
+  ['dragleave', 'drop'].forEach(evt =>
+    dropZone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.remove('dragover');
+    })
+  );
+  dropZone.addEventListener('drop', (e) => {
+    if (busy) return;
+    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    handleFile(file);
+  });
+
+  cancelBtn.addEventListener('click', () => {
+    cancelled = true;
+    setStatus('Cancelling…', 'error');
+  });
+
+  /* ------------------------------------------------------------------ */
+  /* Main export routine                                                 */
+  /* ------------------------------------------------------------------ */
+  async function runExport() {
+    cancelled = false;
+
+    if (!uploadedHtmlContent) return;
+    if (typeof VideoEncoder === 'undefined') {
+      throw new Error('WebCodecs is not available in this browser/context.');
+    }
+    if (!(await ensureMuxer())) {
+      throw new Error(
+        'mp4-muxer could not be loaded. Put mp4-muxer.min.js next to this HTML file, or go online so the CDN backup works.'
+      );
+    }
+
+    /* ---- read & normalise settings ---- */
+    const fps      = clamp(parseInt(fpsInput.value, 10) || 30, 1, 120);
+    const duration = clamp(parseFloat(durationInput.value) || 3, 0.1, 120);
+    const bitrate  = Math.round(clamp(parseFloat(bitrateInput.value) || 6, 0.5, 50) * 1_000_000);
+    const mode     = captureSel.value;
+
+    let width  = clamp(parseInt(widthInput.value, 10) || 640, 16, 3840);
+    let height = clamp(parseInt(heightInput.value, 10) || 360, 16, 2160);
+    width  -= width  % 2;   // H.264 requires even dimensions
+    height -= height % 2;
+
+    const totalFrames = Math.max(1, Math.round(fps * duration));
+    const frameDurationUs = Math.round(1_000_000 / fps);
+
+    setBusy(true);
+    setProgress(0);
+
+    try {
+      /* ---- 1. reload the frame in capture mode ---- */
+      setStatus('Loading animation into capture frame…');
+      syncFrameSize();
+      await loadIntoFrame(buildDoc(uploadedHtmlContent, true));
+      await waitForReady(10000, mode !== 'canvas');
+
+      /* ---- 2. set up the encoder ---- */
+      setStatus('Configuring H.264 encoder…');
+
+      const muxer = new Mp4Muxer.Muxer({
+        target: new Mp4Muxer.ArrayBufferTarget(),
+        video: { codec: 'avc', width, height },
+        fastStart: 'in-memory'
+      });
+
+      let encoderError = null;
+      const encoder = new VideoEncoder({
+        output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+        error: (e) => { encoderError = e; console.error('VideoEncoder error:', e); }
+      });
+
+      const config = await pickCodec(width, height, fps, bitrate);
+      if (!config) throw new Error('No supported H.264 encoder configuration for ' + width + '×' + height + '.');
+
+      encoder.configure(config);
+
+      /* ---- 3. output canvas ---- */
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d', { alpha: false });
+
+      /* ---- 4. frame loop ---- */
+      for (let i = 0; i < totalFrames; i++) {
+        if (cancelled) throw new Error('Cancelled');
+        if (encoderError) throw encoderError;
+
+        const t = (i * 1000) / fps;
+
+        await seekFrame(t);
+
+        const source = await rasterize(width, height, mode);
+
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, width, height);
+        try {
+          ctx.drawImage(source, 0, 0, width, height);
+        } catch (e) {
+          throw new Error('Could not read pixels from the frame (tainted canvas — a cross-origin image without CORS headers?). Original error: ' + e.message);
+        }
+
+        const frame = new VideoFrame(canvas, {
+          timestamp: Math.round((i * 1_000_000) / fps),
+          duration: frameDurationUs
+        });
+
+        encoder.encode(frame, { keyFrame: i % (fps * 2) === 0 });
+        frame.close();
+
+        // Back-pressure
+        if (encoder.encodeQueueSize > 8) {
+          await new Promise((resolve) => {
+            const check = () => {
+              if (cancelled || encoder.encodeQueueSize <= 4) resolve();
+              else setTimeout(check, 4);
+            };
+            check();
+          });
+        }
+
+        setProgress((i + 1) / totalFrames);
+        setStatus('Rendering frame ' + (i + 1) + ' / ' + totalFrames + '…');
+
+        // Yield to the UI occasionally
+        if (i % 3 === 0) await new Promise(r => setTimeout(r, 0));
+      }
+
+      if (cancelled) throw new Error('Cancelled');
+
+      /* ---- 5. finalise ---- */
+      setStatus('Flushing encoder…');
+      await encoder.flush();
+      encoder.close();
+
+      muxer.finalize();
+
+      const blob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'animation-' + width + 'x' + height + '-' + fps + 'fps.mp4';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 15000);
+
+      setProgress(1);
+      setStatus('Done — ' + totalFrames + ' frames exported at ' + width + '×' + height + '.', 'ok');
+
+    } finally {
+      /* ---- 6. restore the live preview ---- */
+      try {
+        setStatus(statusEl.textContent, statusEl.className); // keep message + colour
+        await loadIntoFrame(buildDoc(uploadedHtmlContent, false));
+        await waitForReady(6000);
+      } catch (e) { /* ignore */ }
+
+      setBusy(false);
+    }
+  }
+
+  exportBtn.addEventListener('click', async () => {
+    try {
+      await runExport();
+    } catch (err) {
+      console.error(err);
+      if (String(err && err.message) === 'Cancelled') {
+        setStatus('Export cancelled.', 'error');
+      } else {
+        setStatus('Export failed: ' + (err && err.message ? err.message : err), 'error');
+      }
+      setBusy(false);
+    }
+  });
+
+})();
+</script>
+
+</body>
+</html>
